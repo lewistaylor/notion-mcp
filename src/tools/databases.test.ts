@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 vi.mock("../notion.js", () => ({
   notionRequest: vi.fn(),
+  paginatePost: vi.fn(),
   safeHandler: (fn: (args: Record<string, unknown>) => unknown) => fn,
   jsonContent: (data: unknown) => ({
     content: [{ type: "text" as const, text: JSON.stringify(data) }],
@@ -10,8 +11,10 @@ vi.mock("../notion.js", () => ({
   assertId: (value: string, _name: string) => value.replace(/-/g, ""),
 }));
 
-import { notionRequest } from "../notion.js";
+import { notionRequest, paginatePost } from "../notion.js";
 import { register } from "./databases.js";
+
+const mockPaginatePost = paginatePost as ReturnType<typeof vi.fn>;
 
 const mockNotionRequest = notionRequest as ReturnType<typeof vi.fn>;
 
@@ -205,6 +208,59 @@ describe("databases tools", () => {
 
       const callBody = mockNotionRequest.mock.calls[0][1].body;
       expect(callBody.properties).toEqual(properties);
+    });
+  });
+
+  describe("query_database_all", () => {
+    it("calls paginatePost with the correct path and empty body when no filter/sorts", async () => {
+      mockPaginatePost.mockResolvedValue([{ id: "row-1" }, { id: "row-2" }]);
+
+      const result = await handlers["query_database_all"]({
+        database_id: TEST_UUID,
+      });
+
+      expect(mockPaginatePost).toHaveBeenCalledWith(
+        `/databases/${TEST_ID}/query`,
+        {},
+      );
+      const text = (result as { content: Array<{ text: string }> }).content[0].text;
+      expect(JSON.parse(text).total).toBe(2);
+    });
+
+    it("includes filter in the body passed to paginatePost", async () => {
+      mockPaginatePost.mockResolvedValue([]);
+
+      const filter = { property: "Status", select: { equals: "Done" } };
+      await handlers["query_database_all"]({ database_id: TEST_UUID, filter });
+
+      expect(mockPaginatePost).toHaveBeenCalledWith(
+        `/databases/${TEST_ID}/query`,
+        { filter },
+      );
+    });
+
+    it("includes sorts in the body passed to paginatePost", async () => {
+      mockPaginatePost.mockResolvedValue([{ id: "r1" }]);
+
+      const sorts = [{ property: "Due", direction: "ascending" }];
+      await handlers["query_database_all"]({ database_id: TEST_UUID, sorts });
+
+      const [, body] = mockPaginatePost.mock.calls[0];
+      expect(body.sorts).toEqual(sorts);
+    });
+
+    it("returns total count alongside results", async () => {
+      mockPaginatePost.mockResolvedValue([{ id: "a" }, { id: "b" }, { id: "c" }]);
+
+      const result = await handlers["query_database_all"]({
+        database_id: TEST_UUID,
+      });
+
+      const parsed = JSON.parse(
+        (result as { content: Array<{ text: string }> }).content[0].text,
+      );
+      expect(parsed.total).toBe(3);
+      expect(parsed.results).toHaveLength(3);
     });
   });
 });

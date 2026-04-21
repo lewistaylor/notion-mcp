@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 vi.mock("../notion.js", () => ({
   notionRequest: vi.fn(),
+  paginateGet: vi.fn(),
   safeHandler: (fn: (args: Record<string, unknown>) => unknown) => fn,
   jsonContent: (data: unknown) => ({
     content: [{ type: "text" as const, text: JSON.stringify(data) }],
@@ -10,7 +11,9 @@ vi.mock("../notion.js", () => ({
   assertId: (value: string, _name: string) => value.replace(/-/g, ""),
 }));
 
-import { notionRequest } from "../notion.js";
+import { notionRequest, paginateGet } from "../notion.js";
+
+const mockPaginateGet = paginateGet as ReturnType<typeof vi.fn>;
 import { register } from "./blocks.js";
 
 const mockNotionRequest = notionRequest as ReturnType<typeof vi.fn>;
@@ -177,6 +180,80 @@ describe("blocks tools", () => {
 
       const callBody = mockNotionRequest.mock.calls[0][1].body;
       expect(callBody.after).toBe(AFTER_UUID);
+    });
+  });
+
+  describe("update_block — extended block types", () => {
+    it("sends image block content", async () => {
+      mockNotionRequest.mockResolvedValue({ id: TEST_ID });
+
+      const image = { type: "external", external: { url: "https://example.com/img.png" } };
+      await handlers["update_block"]({ block_id: TEST_UUID, image });
+
+      const callBody = mockNotionRequest.mock.calls[0][1].body;
+      expect(callBody.image).toEqual(image);
+    });
+
+    it("sends equation block content", async () => {
+      mockNotionRequest.mockResolvedValue({ id: TEST_ID });
+
+      const equation = { expression: "E = mc^2" };
+      await handlers["update_block"]({ block_id: TEST_UUID, equation });
+
+      const callBody = mockNotionRequest.mock.calls[0][1].body;
+      expect(callBody.equation).toEqual(equation);
+    });
+
+    it("sends divider block with empty object", async () => {
+      mockNotionRequest.mockResolvedValue({ id: TEST_ID });
+
+      await handlers["update_block"]({ block_id: TEST_UUID, divider: {} });
+
+      const callBody = mockNotionRequest.mock.calls[0][1].body;
+      expect(callBody.divider).toEqual({});
+    });
+
+    it("sends table_row block content", async () => {
+      mockNotionRequest.mockResolvedValue({ id: TEST_ID });
+
+      const table_row = { cells: [[{ text: { content: "Cell 1" } }]] };
+      await handlers["update_block"]({ block_id: TEST_UUID, table_row });
+
+      const callBody = mockNotionRequest.mock.calls[0][1].body;
+      expect(callBody.table_row).toEqual(table_row);
+    });
+  });
+
+  describe("get_all_block_children", () => {
+    it("calls paginateGet with the correct path", async () => {
+      mockPaginateGet.mockResolvedValue([
+        { id: "block-1", type: "paragraph" },
+        { id: "block-2", type: "heading_1" },
+      ]);
+
+      const result = await handlers["get_all_block_children"]({
+        block_id: TEST_UUID,
+      });
+
+      expect(mockPaginateGet).toHaveBeenCalledWith(`/blocks/${TEST_ID}/children`);
+      const parsed = JSON.parse(
+        (result as { content: Array<{ text: string }> }).content[0].text,
+      );
+      expect(parsed.total).toBe(2);
+      expect(parsed.results).toHaveLength(2);
+    });
+
+    it("returns total count alongside results", async () => {
+      mockPaginateGet.mockResolvedValue(Array.from({ length: 5 }, (_, i) => ({ id: `b${i}` })));
+
+      const result = await handlers["get_all_block_children"]({
+        block_id: TEST_UUID,
+      });
+
+      const parsed = JSON.parse(
+        (result as { content: Array<{ text: string }> }).content[0].text,
+      );
+      expect(parsed.total).toBe(5);
     });
   });
 });

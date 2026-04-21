@@ -5,6 +5,7 @@ import {
   safeHandler,
   jsonContent,
   assertId,
+  paginateGet,
 } from "../notion.js";
 
 export function register(server: McpServer) {
@@ -58,8 +59,20 @@ export function register(server: McpServer) {
         code: z.record(z.unknown()).optional().describe("Code block content (supports language field)."),
         quote: z.record(z.unknown()).optional().describe("Quote block content."),
         callout: z.record(z.unknown()).optional().describe("Callout block content."),
-        bookmark: z.record(z.unknown()).optional().describe("Bookmark block content."),
-        embed: z.record(z.unknown()).optional().describe("Embed block content."),
+        bookmark: z.record(z.unknown()).optional().describe("Bookmark block content. E.g. { url: 'https://...' }"),
+        embed: z.record(z.unknown()).optional().describe("Embed block content. E.g. { url: 'https://...' }"),
+        image: z.record(z.unknown()).optional().describe("Image block. E.g. { type: 'external', external: { url: 'https://...' } }"),
+        video: z.record(z.unknown()).optional().describe("Video block. E.g. { type: 'external', external: { url: 'https://...' } }"),
+        file: z.record(z.unknown()).optional().describe("File block. E.g. { type: 'external', external: { url: 'https://...' } }"),
+        pdf: z.record(z.unknown()).optional().describe("PDF block. E.g. { type: 'external', external: { url: 'https://...' } }"),
+        divider: z.record(z.unknown()).optional().describe("Divider block (horizontal rule). Pass {} as value."),
+        table_of_contents: z.record(z.unknown()).optional().describe("Table of contents block. Optionally { color: 'gray' }."),
+        breadcrumb: z.record(z.unknown()).optional().describe("Breadcrumb block. Pass {} as value."),
+        equation: z.record(z.unknown()).optional().describe("Equation block. E.g. { expression: 'E = mc^2' }"),
+        link_preview: z.record(z.unknown()).optional().describe("Link preview block. E.g. { url: 'https://...' }"),
+        synced_block: z.record(z.unknown()).optional().describe("Synced block. E.g. { synced_from: null } to create original, or { synced_from: { block_id: '...' } } to sync."),
+        table: z.record(z.unknown()).optional().describe("Table block. E.g. { table_width: 3, has_column_header: true, has_row_header: false }"),
+        table_row: z.record(z.unknown()).optional().describe("Table row block. E.g. { cells: [[{ text: { content: 'Cell 1' } }], ...] }"),
       },
     },
     safeHandler(async ({ block_id, archived, ...blockContent }) => {
@@ -182,6 +195,30 @@ export function register(server: McpServer) {
         body,
       });
       return jsonContent(result);
+    }),
+  );
+
+  server.registerTool(
+    "get_all_block_children",
+    {
+      description:
+        "Retrieve ALL child blocks of a Notion block or page, automatically paginating " +
+        "through every result page. Use this instead of get_block_children when you need " +
+        "the complete block tree (e.g. fetching an entire page body). " +
+        "Fetches up to 10,000 blocks (100 pages × 100 blocks). " +
+        "Example: get_all_block_children({ block_id: 'abc...' })",
+      inputSchema: {
+        block_id: z
+          .string()
+          .describe(
+            "The block or page ID whose children to retrieve (UUID with or without hyphens).",
+          ),
+      },
+    },
+    safeHandler(async ({ block_id }) => {
+      const id = assertId(block_id, "block_id");
+      const children = await paginateGet(`/blocks/${id}/children`);
+      return jsonContent({ results: children, total: children.length });
     }),
   );
 }

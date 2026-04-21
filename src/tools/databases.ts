@@ -5,6 +5,7 @@ import {
   safeHandler,
   jsonContent,
   assertId,
+  paginatePost,
 } from "../notion.js";
 
 export function register(server: McpServer) {
@@ -236,6 +237,7 @@ export function register(server: McpServer) {
           .optional()
           .describe("Updated cover image."),
       },
+
     },
     safeHandler(
       async ({ database_id, title, description, properties, icon, cover }) => {
@@ -254,5 +256,45 @@ export function register(server: McpServer) {
         return jsonContent(db);
       },
     ),
+  );
+
+  server.registerTool(
+    "query_database_all",
+    {
+      description:
+        "Query ALL rows from a Notion database with optional filters and sorts, automatically " +
+        "paginating through every result page. Use this instead of query_database when you need " +
+        "the complete result set rather than a single page. Fetches up to 10,000 rows (100 pages × 100 rows). " +
+        "Example: query_database_all({ database_id: 'abc...', " +
+        "filter: { property: 'Done', checkbox: { equals: false } }, " +
+        "sorts: [{ property: 'Due', direction: 'ascending' }] })",
+      inputSchema: {
+        database_id: z
+          .string()
+          .describe("The database ID (UUID with or without hyphens)."),
+        filter: z
+          .record(z.unknown())
+          .optional()
+          .describe(
+            "Notion filter object. Supports property filters and compound operators (and, or). " +
+            "Example: { property: 'Status', select: { equals: 'In progress' } }",
+          ),
+        sorts: z
+          .array(z.record(z.unknown()))
+          .optional()
+          .describe(
+            'Array of sort objects. E.g. [{ property: "Due", direction: "ascending" }]',
+          ),
+      },
+    },
+    safeHandler(async ({ database_id, filter, sorts }) => {
+      const id = assertId(database_id, "database_id");
+      const body: Record<string, unknown> = {};
+      if (filter !== undefined) body.filter = filter;
+      if (sorts !== undefined) body.sorts = sorts;
+
+      const rows = await paginatePost(`/databases/${id}/query`, body);
+      return jsonContent({ results: rows, total: rows.length });
+    }),
   );
 }
