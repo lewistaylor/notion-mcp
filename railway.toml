@@ -1,0 +1,20 @@
+# ── Notion MCP service config ─────────────────────────────────────────────────
+#
+# Deploy as "notion-mcp" on Railway. Uses the Dockerfile that builds
+# the TypeScript source and runs the MCP server over Streamable HTTP.
+#
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │  IMPORTANT: Do NOT add a public domain to this service!               │
+# │  It must only be reachable via Railway private networking.            │
+# │  The mcp-auth-gateway handles public access and authentication.      │
+# └─────────────────────────────────────────────────────────────────────────┘
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
